@@ -1,0 +1,23 @@
+name             = "indian-parcel-mcp"
+main             = "src/worker.ts"
+compatibility_date  = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+tsconfig         = "tsconfig.worker.json"
+minify           = true
+
+# Durable Objects — required by McpAgent for session state
+[[durable_objects.bindings]]
+name       = "INDIAN_PARCEL_MCP"
+class_name = "IndianParcelMCP"
+
+[[migrations]]
+tag              = "v1"
+new_sqlite_classes = ["IndianParcelMCP"]
+
+[observability]
+enabled = true
+
+[vars]
+# Non-secret env vars go here.
+# Add secrets via CLI (never in wrangler.toml):
+#   npx wrangler secret put MY_API_KEY

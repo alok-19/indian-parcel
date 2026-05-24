@@ -1,5 +1,6 @@
 import robotsParser from "robots-parser";
 import { logger } from "./logger.js";
+import { getDefaultCache } from "./workers_cache.js";
 
 const userAgents = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
@@ -42,7 +43,9 @@ export class HttpClient {
   private readonly maxConcurrencyPerHost = 2;
 
   /**
-   * Fetches a page with timeout, retry, UA rotation, robots awareness, and jitter.
+   * Fetches a page with timeout, retry, UA rotation, and robots awareness.
+   * robots.txt is checked in parallel with slot acquisition so it doesn't
+   * add sequential latency on cache misses.
    */
   async fetchText(
     url: string,
@@ -53,16 +56,20 @@ export class HttpClient {
     } = {}
   ): Promise<HttpResponse> {
     const target = new URL(url);
-    await this.ensureRobotsAllowed(target);
+
+    // Kick off robots check immediately — resolves from cache instantly if warm,
+    // otherwise fetches in parallel with acquireHostSlot.
+    const robotsPromise = this.ensureRobotsAllowed(target);
+
     await this.acquireHostSlot(target.host);
-    await this.sleep(1_000 + Math.floor(Math.random() * 200));
+    await robotsPromise;
 
     const attempts = [1, 2];
     try {
       for (const attempt of attempts) {
         try {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 15_000);
+          const timer = setTimeout(() => controller.abort(), 8_000);
           const headers: Record<string, string> = {
             "user-agent": userAgents[(attempt - 1) % userAgents.length]!,
             accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -94,7 +101,7 @@ export class HttpClient {
           }
 
           logger.warn({ err: error, url }, "Retrying carrier fetch after transient error");
-          await this.sleep(400);
+          await this.sleep(200);
         }
       }
 
@@ -105,31 +112,64 @@ export class HttpClient {
   }
 
   /**
+   * Pre-warms the robots.txt cache for a list of origin URLs.
+   * Call this at Worker/server startup so the first tracking request
+   * doesn't pay the robots.txt fetch cost.
+   */
+  async warmRobots(origins: string[]): Promise<void> {
+    await Promise.allSettled(
+      origins.map((o) => this.ensureRobotsAllowed(new URL(o)))
+    );
+  }
+
+  /**
    * Best-effort robots fetch and policy evaluation.
+   * L1: module-level Map (instant, per-DO-instance).
+   * L2: Workers Cache API (shared across DOs at same PoP, 1h TTL) — skips network
+   *     re-fetch on new sessions as long as the PoP cache is warm.
+   * L3: Network fetch with 3s timeout so a slow host never blocks the request path.
    */
   private async ensureRobotsAllowed(target: URL): Promise<void> {
     const robotsUrl = `${target.protocol}//${target.host}/robots.txt`;
+    const robotsCacheKey = `https://indian-parcel-cache.internal/v1/robots/${encodeURIComponent(target.host)}`;
     let parser = robotsCache.get(robotsUrl);
 
     if (!parser) {
-      try {
-        const response = await fetch(robotsUrl, {
-          headers: { "user-agent": userAgents[0]! }
-        });
-        const body = response.ok ? await response.text() : "";
-        parser = parseRobots(robotsUrl, body);
-      } catch (error) {
-        logger.warn({ err: error, robotsUrl }, "Unable to fetch robots.txt, proceeding conservatively");
-        parser = parseRobots(robotsUrl, "");
+      const cache = getDefaultCache();
+      let body: string | undefined;
+
+      if (cache) {
+        const cached = await cache.match(new Request(robotsCacheKey));
+        if (cached) body = await cached.text();
       }
 
+      if (body === undefined) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3_000);
+          const response = await fetch(robotsUrl, {
+            headers: { "user-agent": userAgents[0]! },
+            signal: controller.signal
+          });
+          clearTimeout(timer);
+          body = response.ok ? await response.text() : "";
+
+          if (cache) {
+            void cache.put(
+              new Request(robotsCacheKey),
+              new Response(body, { headers: { "Cache-Control": "public, max-age=3600" } })
+            );
+          }
+        } catch {
+          body = "";
+        }
+      }
+
+      parser = parseRobots(robotsUrl, body);
       robotsCache.set(robotsUrl, parser);
     }
 
-    const resolvedParser = parser ?? parseRobots(robotsUrl, "");
-    robotsCache.set(robotsUrl, resolvedParser);
-
-    if (!resolvedParser.isAllowed(target.toString(), userAgents[0]!)) {
+    if (!parser.isAllowed(target.toString(), userAgents[0]!)) {
       throw new RobotsDisallowedError(`Robots policy disallows ${target.pathname}`);
     }
   }

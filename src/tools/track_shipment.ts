@@ -20,7 +20,7 @@ export async function trackShipmentTool(input: {
   destination_pincode?: string;
 }): Promise<ShipmentStatus> {
   const awb = input.awb.trim().toUpperCase();
-  const cached = trackingCache.get(awb);
+  const cached = await trackingCache.get(awb);
   if (cached) {
     const status = reasonAboutShipment({
       raw: cached,

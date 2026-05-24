@@ -3,7 +3,9 @@ node_modules/
 
 # Build and test output
 dist/
+dist-worker/
 coverage/
+.wrangler/
 
 # Local caches and logs
 .npm-cache/
@@ -19,6 +21,7 @@ pnpm-debug.log*
 .env.*
 !.env.example
 .antigravitycli/
+.dev.vars
 
 # Local drafts and generated planning notes
 README 2.md

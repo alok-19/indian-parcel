@@ -48,10 +48,10 @@ describe("trackShipmentTool integration", () => {
     expect(result.status).toBe("unknown");
   });
 
-  it("uses normalized raw results consistently", () => {
+  it("uses normalized raw results consistently", async () => {
     const parsed = parseBlueDartHtml(fixtureHtml, "1234567892");
     trackingCache.set("1234567892", parsed);
-    expect(trackingCache.get("1234567892")?.events).toHaveLength(2);
+    expect((await trackingCache.get("1234567892"))?.events).toHaveLength(2);
     expect(awbRateLimiter.canFetch("1234567892")).toBe(true);
   });
 });

@@ -309,7 +309,7 @@ function parseBlueDartDate(value: string | undefined): string | undefined {
 }
 
 /**
- * Fetches Blue Dart tracking using a couple of known public result paths.
+ * Fetches Blue Dart tracking, falling back from www to apex only on failure.
  */
 async function fetchBlueDartCandidates(awb: string) {
   const encoded = encodeURIComponent(awb);
@@ -317,17 +317,13 @@ async function fetchBlueDartCandidates(awb: string) {
     `https://www.bluedart.com/web/guest/trackdartresult?trackFor=0&trackNo=${encoded}`,
     `https://bluedart.com/web/guest/trackdartresult?trackFor=0&trackNo=${encoded}`
   ];
-  const responses = [];
+  let lastError: Error | undefined;
   for (const url of urls) {
     try {
-      responses.push(await httpClient.fetchText(url));
+      return [await httpClient.fetchText(url)];
     } catch (error) {
-      if (error instanceof Error) {
-        throw new CarrierUnavailableError(`Blue Dart live fetch failed for ${url}: ${error.message}`);
-      }
-      throw error;
+      lastError = error instanceof Error ? error : new Error(String(error));
     }
   }
-
-  return responses;
+  throw new CarrierUnavailableError(`Blue Dart live fetch failed: ${lastError?.message}`);
 }
