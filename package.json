@@ -1,6 +1,6 @@
 {
   "name": "indian-parcel-mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "India-focused MCP server for shipment tracking, deadline-aware reasoning, and escalation guidance.",
   "license": "MIT",
   "type": "module",
