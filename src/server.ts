@@ -23,9 +23,11 @@ import { trackShipmentTool } from "./tools/track_shipment.js";
 import { listWatchesTool, refreshWatchesTool, removeWatchTool, watchShipmentTool } from "./tools/watchlist.js";
 import { anomalySchema, escalationStepSchema, trackShipmentInputSchema } from "./types.js";
 
+declare const __PACKAGE_VERSION__: string;
+
 const server = new McpServer({
   name: "indian-parcel-mcp",
-  version: "0.1.0"
+  version: __PACKAGE_VERSION__
 });
 
 server.registerTool(
